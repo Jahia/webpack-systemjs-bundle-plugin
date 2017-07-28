@@ -1,0 +1,29 @@
+<html>
+	<head></head>
+	<body>
+		<script src="system.src.js"></script>
+		<script text="text/javascript">
+			(function (global) {
+				System.config({
+  					"baseURL": ".",
+		  			"packages": {
+		  				"lodash@4.17.4" : {
+		  					"main": "lodash.js"
+		  				}
+					},
+					"map" : {
+  					    "lodash": "lodash@4.17.4",
+						"vendors.bundle.js" : "./packs/vendors.bundle.js",
+						"lodash.bundle.js" : "./packs/lodash.bundle.js",
+						"example.js" : "./packs/example.js",
+					},
+					"bundles": {
+						"vendors.bundle.js" : ["create-react-class@15.6.0/*","fbjs@0.8.14/*","lodash@4.17.4/*","object-assign@4.1.1/*","prop-types@15.5.10/*","react-dom@15.6.1/*","react@15.6.1/*","webpack@3.4.1/*"]
+//						"lodash.bundle.js" : ["lodash@4.17.4/*"]
+					}
+				})
+			})();
+			System.import('example.js');
+		</script>
+	</body>
+</html>
