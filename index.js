@@ -51,19 +51,18 @@ class SystemJSBundlePlugin {
                     name,
                     type: this.options.type,
                     content: chunk.mapModules(module => {
-                        if (module.libIdent) {
-                            let ident = module.libIdent({
-                                context: "node_modules"
-                            });
-                            if (ident && ident.startsWith('./')) {
-                                ident = ident.substr(2);
+                        let ident = module.identifier();
+                            if (ident && ident.indexOf('node_modules') > -1) {
+                                let basePath = ident.substr(0, ident.lastIndexOf('node_modules'))
+                                ident = ident.substr(ident.lastIndexOf('node_modules')+13);
+
                                 let moduleName = ident.substr(0, ident.indexOf("/"));
                                 ident = ident.substr( ident.indexOf("/") + 1);
                                 if (moduleName.startsWith("@")) {
                                     moduleName = moduleName + "/" + ident.substr(0, ident.indexOf("/"));
                                     ident = ident.substr(ident.indexOf("/") + 1);
                                 }
-                                let packageJsonPath = path.join(module.identifier().substr(0,module.identifier().lastIndexOf('node_modules')), "node_modules", moduleName, "package.json");
+                                let packageJsonPath = path.join(basePath, "node_modules", moduleName, "package.json");
                                 if (!packagesInfo[packageJsonPath]) {
                                     packagesInfo[packageJsonPath] =  JSON.parse(fs.readFileSync(packageJsonPath));
                                 }
@@ -77,7 +76,7 @@ class SystemJSBundlePlugin {
                                     }
                                 };
                             }
-                        }
+                        // }
                     }).filter(Boolean).reduce((obj, item) => {
                         obj[item.ident] = item.data;
                         return obj;
