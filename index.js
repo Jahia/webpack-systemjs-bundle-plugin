@@ -46,42 +46,44 @@ class SystemJSBundlePlugin {
                     });
 
                 const packagesInfo = {};
+                const meta = {};
 
                 const manifest = {
                     name,
                     type: this.options.type,
                     content: chunk.mapModules(module => {
                         let ident = module.identifier();
-                            if (ident && ident.indexOf('node_modules') > -1) {
-                                let basePath = ident.substr(0, ident.lastIndexOf('node_modules'))
-                                ident = ident.substr(ident.lastIndexOf('node_modules')+13);
+                        if (ident && ident.indexOf('node_modules') > -1) {
+                            let basePath = ident.substr(0, ident.lastIndexOf('node_modules'))
+                            ident = ident.substr(ident.lastIndexOf('node_modules')+13);
 
-                                let moduleName = ident.substr(0, ident.indexOf("/"));
-                                ident = ident.substr( ident.indexOf("/") + 1);
-                                if (moduleName.startsWith("@")) {
-                                    moduleName = moduleName + "/" + ident.substr(0, ident.indexOf("/"));
-                                    ident = ident.substr(ident.indexOf("/") + 1);
-                                }
-                                let packageJsonPath = path.join(basePath, "node_modules", moduleName, "package.json");
-                                if (!packagesInfo[packageJsonPath]) {
-                                    packagesInfo[packageJsonPath] =  JSON.parse(fs.readFileSync(packageJsonPath));
-                                }
-                                ident = moduleName + "@" + packagesInfo[packageJsonPath].version + "/" + ident;
-                                return {
-                                    ident,
-                                    data: {
-                                        id: module.id,
-                                        meta: module.meta,
-                                        exports: Array.isArray(module.providedExports) ? module.providedExports : undefined
-                                    }
-                                };
+                            let moduleName = ident.substr(0, ident.indexOf("/"));
+                            ident = ident.substr( ident.indexOf("/") + 1);
+                            if (moduleName.startsWith("@")) {
+                                moduleName = moduleName + "/" + ident.substr(0, ident.indexOf("/"));
+                                ident = ident.substr(ident.indexOf("/") + 1);
                             }
-                        // }
+                            let packageJsonPath = path.join(basePath, "node_modules", moduleName, "package.json");
+                            if (!packagesInfo[packageJsonPath]) {
+                                packagesInfo[packageJsonPath] =  JSON.parse(fs.readFileSync(packageJsonPath));
+                            }
+                            ident = moduleName + "@" + packagesInfo[packageJsonPath].version + "/" + ident;
+                            return {
+                                ident,
+                                data: {
+                                    id: module.id,
+                                    meta: module.meta,
+                                    exports: Array.isArray(module.providedExports) ? module.providedExports : undefined
+                                }
+                            };
+                        }
                     }).filter(Boolean).reduce((obj, item) => {
-                        obj[item.ident] = item.data;
+                        meta[item.ident] = item.data;
+                        obj.push(item.ident);
                         return obj;
-                    }, Object.create(null))
+                    }, [])
                 };
+
                 manifest.packagesInfo = {};
                 for (let p in packagesInfo) {
                     let info = packagesInfo[p];
@@ -89,10 +91,10 @@ class SystemJSBundlePlugin {
                 }
                 let previousSource = compilation.assets[chunk.files[0]].source();
                 compilation.assets[chunk.files[0]].source = function() {
-                    let source = previousSource + "\n";
+                    let source = "\"bundle\";\nvar define = System.amdDefine;\n" + previousSource + "\n";
 
-                    for (let property in manifest.content) {
-                        source = source + "System.registerDynamic('"+property+"', ['"+manifest.name+"'], true, function(require,exports,module) { module.exports=require('"+manifest.name+"')("+manifest.content[property].id+"); }); \n"
+                    for (let property in meta) {
+                        source = source + "System.registerDynamic('"+property+"', ['"+manifest.name+"'], true, function(require,exports,module) { module.exports=require('"+manifest.name+"')("+meta[property].id+"); }); \n"
                     }
 
                     return source;
