@@ -1,3 +1,5 @@
+"use strict";
+
 const path = require("path");
 const fs = require("fs");
 const asyncLib = require("async");
@@ -41,9 +43,9 @@ class SystemJSBundlePlugin {
                     chunk
                 });
                 const name = this.options.name && compilation.getPath(this.options.name, {
-                        hash: compilation.hash,
-                        chunk
-                    });
+                    hash: compilation.hash,
+                    chunk
+                });
 
                 const packagesInfo = {};
                 const meta = {};
@@ -53,29 +55,36 @@ class SystemJSBundlePlugin {
                     type: this.options.type,
                     content: chunk.mapModules(module => {
                         let ident = module.identifier();
-                        if (ident && ident.indexOf('node_modules') > -1) {
-                            let basePath = ident.substr(0, ident.lastIndexOf('node_modules'))
-                            ident = ident.substr(ident.lastIndexOf('node_modules')+13);
-
-                            let moduleName = ident.substr(0, ident.indexOf("/"));
-                            ident = ident.substr( ident.indexOf("/") + 1);
-                            if (moduleName.startsWith("@")) {
-                                moduleName = moduleName + "/" + ident.substr(0, ident.indexOf("/"));
+                        if (ident) {
+                            let i = Math.max(ident.lastIndexOf('node_modules'), ident.lastIndexOf('bower_components'));
+                            if (i > -1) {
+                                let basePath = ident.substr(0, i)
+                                let modulesFolder = ident.substr(i, ident.indexOf('/',i) - i);
+                                ident = ident.substr(ident.indexOf('/', i)+1);
+                                let moduleName = ident.substr(0, ident.indexOf("/"));
                                 ident = ident.substr(ident.indexOf("/") + 1);
-                            }
-                            let packageJsonPath = path.join(basePath, "node_modules", moduleName, "package.json");
-                            if (!packagesInfo[packageJsonPath]) {
-                                packagesInfo[packageJsonPath] =  JSON.parse(fs.readFileSync(packageJsonPath));
-                            }
-                            ident = moduleName + "@" + packagesInfo[packageJsonPath].version + "/" + ident;
-                            return {
-                                ident,
-                                data: {
-                                    id: module.id,
-                                    meta: module.meta,
-                                    exports: Array.isArray(module.providedExports) ? module.providedExports : undefined
+                                if (moduleName.startsWith("@")) {
+                                    moduleName = moduleName + "/" + ident.substr(0, ident.indexOf("/"));
+                                    ident = ident.substr(ident.indexOf("/") + 1);
                                 }
-                            };
+                                let packageJsonPath = path.join(basePath, modulesFolder, moduleName);
+                                if (!packagesInfo[packageJsonPath]) {
+                                    if (fs.existsSync(path.join(packageJsonPath,'package.json'))) {
+                                        packagesInfo[packageJsonPath] = JSON.parse(fs.readFileSync(path.join(packageJsonPath,'package.json')));
+                                    } else if (fs.existsSync(path.join(packageJsonPath,'bower.json'))) {
+                                        packagesInfo[packageJsonPath] = JSON.parse(fs.readFileSync(path.join(packageJsonPath,'.bower.json')));
+                                    }
+                                }
+                                ident = moduleName + "@" + packagesInfo[packageJsonPath].version + "/" + ident;
+                                return {
+                                    ident,
+                                    data: {
+                                        id: module.id,
+                                        meta: module.meta,
+                                        exports: Array.isArray(module.providedExports) ? module.providedExports : undefined
+                                    }
+                                };
+                            }
                         }
                     }).filter(Boolean).reduce((obj, item) => {
                         meta[item.ident] = item.data;
