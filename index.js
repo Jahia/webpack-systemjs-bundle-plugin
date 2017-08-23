@@ -7,11 +7,36 @@ const webpack = require("webpack");
 const DllEntryPlugin = require("webpack/lib/DllEntryPlugin");
 const FlagInitialModulesAsUsedPlugin = require("webpack/lib/FlagInitialModulesAsUsedPlugin");
 
+const descriptorNames = ['package.json', '.bower.json'];
+
 class SystemJSBundlePlugin {
     constructor(options) {
         this.options = options;
     }
 
+    findDescriptor(currentFullPath) {
+        function splitPath(path) {
+            var parts = path.split(/(\/|\\)/);
+            if (!parts.length) return parts;
+
+            // when path starts with a slash, the first part is empty string
+            return !parts[0].length ? parts.slice(1) : parts;
+        }
+
+        function testDir(parts) {
+            if (parts.length === 0) return null;
+
+            var p = parts.join('');
+            for (var i = 0; i < descriptorNames.length; i++) {
+                if (fs.existsSync(path.join(p, descriptorNames[i]))) {
+                    return path.join(p, descriptorNames[i]);
+                }
+            }
+            return testDir(parts.slice(0, -1));
+        }
+
+        return testDir(splitPath(currentFullPath));
+    }
 
     apply(compiler) {
         compiler.plugin("entry-option", (context, entry) => {
@@ -56,26 +81,13 @@ class SystemJSBundlePlugin {
                     content: chunk.mapModules(module => {
                         let ident = module.identifier();
                         if (ident) {
-                            let i = Math.max(ident.lastIndexOf('node_modules'), ident.lastIndexOf('bower_components'));
-                            if (i > -1) {
-                                let basePath = ident.substr(0, i)
-                                let modulesFolder = ident.substr(i, ident.indexOf('/',i) - i);
-                                ident = ident.substr(ident.indexOf('/', i)+1);
-                                let moduleName = ident.substr(0, ident.indexOf("/"));
-                                ident = ident.substr(ident.indexOf("/") + 1);
-                                if (moduleName.startsWith("@")) {
-                                    moduleName = moduleName + "/" + ident.substr(0, ident.indexOf("/"));
-                                    ident = ident.substr(ident.indexOf("/") + 1);
+                            let descriptor = this.findDescriptor(ident);
+                            if (descriptor) {
+                                if (!packagesInfo[descriptor]) {
+                                    packagesInfo[descriptor] = JSON.parse(fs.readFileSync(descriptor));
                                 }
-                                let packageJsonPath = path.join(basePath, modulesFolder, moduleName);
-                                if (!packagesInfo[packageJsonPath]) {
-                                    if (fs.existsSync(path.join(packageJsonPath,'package.json'))) {
-                                        packagesInfo[packageJsonPath] = JSON.parse(fs.readFileSync(path.join(packageJsonPath,'package.json')));
-                                    } else if (fs.existsSync(path.join(packageJsonPath,'bower.json'))) {
-                                        packagesInfo[packageJsonPath] = JSON.parse(fs.readFileSync(path.join(packageJsonPath,'.bower.json')));
-                                    }
-                                }
-                                ident = moduleName + "@" + packagesInfo[packageJsonPath].version + "/" + ident;
+                                ident = ident.substr(descriptor.lastIndexOf('/')+1);
+                                ident = packagesInfo[descriptor].name + "@" + packagesInfo[descriptor].version + "/" + ident;
                                 return {
                                     ident,
                                     data: {
