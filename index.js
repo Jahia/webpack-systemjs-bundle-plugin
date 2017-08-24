@@ -79,7 +79,7 @@ class SystemJSBundlePlugin {
                     name,
                     type: this.options.type,
                     content: chunk.mapModules(module => {
-                        let ident = module.identifier();
+                        let ident = module.userRequest;
                         if (ident) {
                             let descriptor = this.findDescriptor(ident);
                             if (descriptor) {
