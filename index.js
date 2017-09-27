@@ -112,7 +112,7 @@ class SystemJSBundlePlugin {
                 }
                 let previousSource = compilation.assets[chunk.files[0]].source();
                 compilation.assets[chunk.files[0]].source = function() {
-                    let source = "\"bundle\";\nvar define = System.amdDefine;\n" + previousSource + "\n";
+                    let source = "\"bundle\";var define = System.amdDefine;" + previousSource + "\n";
 
                     for (let property in meta) {
                         source = source + "System.registerDynamic('"+property+"', ['"+manifest.name+"'], true, function(require,exports,module) { module.exports=require('"+manifest.name+"')("+meta[property].id+"); }); \n"
