@@ -3,9 +3,7 @@
 const path = require("path");
 const fs = require("fs");
 const asyncLib = require("async");
-const webpack = require("webpack");
-const DllEntryPlugin = require("webpack/lib/DllEntryPlugin");
-const FlagInitialModulesAsUsedPlugin = require("webpack/lib/FlagInitialModulesAsUsedPlugin");
+const RawSource = require("webpack-sources").RawSource;
 
 const descriptorNames = ['package.json', '.bower.json'];
 
@@ -39,70 +37,89 @@ class SystemJSBundlePlugin {
     }
 
     apply(compiler) {
-        compiler.plugin("entry-option", (context, entry) => {
-            function itemToPlugin(item, name) {
-                if(Array.isArray(item))
-                    return new DllEntryPlugin(context, item, name);
-                else
-                    return new DllEntryPlugin(context, [item], name);
-            }
-            if(typeof entry === "object" && !Array.isArray(entry)) {
-                Object.keys(entry).forEach(name => {
-                    compiler.apply(itemToPlugin(entry[name], name));
-                });
-            } else {
-                compiler.apply(itemToPlugin(entry, "main"));
-            }
-            return true;
-        });
-        compiler.apply(new FlagInitialModulesAsUsedPlugin());
+        compiler.hooks.compilation.tap('systemjs-bundle-plugin', (compilation) => {
+            compilation.hooks.beforeChunkAssets.tap('systemjs-bundle-plugin', () => {
+                compilation.entries.forEach(entry => {
+                    entry.source = (dependencyTemplates, outputOptions) => {
+                        const str = [];
+                        str.push("module.exports = {\n");
 
-        compiler.plugin("emit", (compilation, callback) => {
-            asyncLib.forEach(compilation.chunks, (chunk, callback) => {
-                if (!chunk.isInitial()) {
-                    callback();
-                    return;
-                }
-                const targetPath = compilation.getPath(this.options.path, {
+                        entry.dependencies.forEach(function(dep, idx) {
+                            if (dep.module) {
+                                str.push(" '");
+                                str.push(dep.module.rawRequest);
+                                str.push("' : ");
+                                str.push("__webpack_require__(");
+                                if (outputOptions.pathinfo)
+                                    str.push(`/*! ${dep.request} */`);
+                                str.push(`${JSON.stringify(dep.module.id)}`);
+                                str.push(")");
+                            } else {
+                                str.push("(function webpackMissingModule() { throw new Error(");
+                                str.push(JSON.stringify(`Cannot find module "${dep.request}"`));
+                                str.push("); }())");
+                            }
+                            if (idx !== this.dependencies.length - 1)
+                                str.push(",");
+                            str.push("\n");
+
+                        }, entry);
+                        str.push("}\n");
+                        return new RawSource(str.join(""));
+                    }
+                })
+            });
+        });
+
+        compiler.hooks.emit.tapAsync('systemjs-bundle-plugin', (compilation, callback) => {
+
+            // Iterate on all configuration entries
+            asyncLib.forEach(compilation.entries, (entry, callback) => {
+
+                // Use main chunk to get the output file name
+                const chunk = entry.getChunks()[0];
+
+                const name = this.options.name && compilation.getPath(this.options.name, {
                     hash: compilation.hash,
                     chunk
                 });
-                const name = this.options.name && compilation.getPath(this.options.name, {
+                const targetPath = compilation.getPath(this.options.path, {
                     hash: compilation.hash,
                     chunk
                 });
 
                 const packagesInfo = {};
                 const meta = {};
+                const mainEntriesContent = [];
+
+                // Iterate on each dependency of the current entry to get all entry points
+                entry.dependencies.forEach(dependency => {
+                    let module = dependency.module;
+                    let ident = module.userRequest;
+                    if (ident) {
+                        let descriptor = this.findDescriptor(ident);
+                        if (descriptor) {
+                            if (!packagesInfo[descriptor]) {
+                                packagesInfo[descriptor] = JSON.parse(fs.readFileSync(descriptor));
+                            }
+                            ident = ident.substr(descriptor.lastIndexOf('/') + 1);
+                            ident = packagesInfo[descriptor].name + "@" + packagesInfo[descriptor].version + "/" + ident;
+
+                            meta[ident] = {
+                                id: module.rawRequest,
+                                meta: module.buildMeta,
+                                exports: Array.isArray(module.providedExports) ? module.providedExports : undefined
+                            };
+
+                            mainEntriesContent.push(ident);
+                        }
+                    }
+                });
 
                 const manifest = {
                     name,
                     type: this.options.type,
-                    content: chunk.mapModules(module => {
-                        let ident = module.userRequest;
-                        if (ident) {
-                            let descriptor = this.findDescriptor(ident);
-                            if (descriptor) {
-                                if (!packagesInfo[descriptor]) {
-                                    packagesInfo[descriptor] = JSON.parse(fs.readFileSync(descriptor));
-                                }
-                                ident = ident.substr(descriptor.lastIndexOf('/')+1);
-                                ident = packagesInfo[descriptor].name + "@" + packagesInfo[descriptor].version + "/" + ident;
-                                return {
-                                    ident,
-                                    data: {
-                                        id: module.id,
-                                        meta: module.meta,
-                                        exports: Array.isArray(module.providedExports) ? module.providedExports : undefined
-                                    }
-                                };
-                            }
-                        }
-                    }).filter(Boolean).reduce((obj, item) => {
-                        meta[item.ident] = item.data;
-                        obj.push(item.ident);
-                        return obj;
-                    }, [])
+                    content: mainEntriesContent
                 };
 
                 manifest.packagesInfo = {};
@@ -115,7 +132,7 @@ class SystemJSBundlePlugin {
                     let source = "\"bundle\";var define = System.amdDefine;" + previousSource + "\n";
 
                     for (let property in meta) {
-                        source = source + "System.registerDynamic('"+property+"', ['"+manifest.name+"'], true, function(require,exports,module) { module.exports=require('"+manifest.name+"')("+meta[property].id+"); }); \n"
+                        source = source + "System.registerDynamic('"+property+"', ['"+manifest.name+"'], true, function(require,exports,module) { module.exports=require('"+manifest.name+"')['"+meta[property].id+"']; }); \n"
                     }
 
                     return source;
@@ -126,6 +143,7 @@ class SystemJSBundlePlugin {
                     if (err) return callback(err);
                     compiler.outputFileSystem.writeFile(targetPath, content, callback);
                 });
+
             }, callback);
         });
     }
